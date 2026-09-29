@@ -1,0 +1,495 @@
+const API_BASE_URL = '/api';
+
+export class ApiService {
+  public static getToken(): string | null {
+    // 1. Tab-isolated session token (Each tab maintains its own independent session!)
+    if (typeof sessionStorage !== 'undefined') {
+      const tabToken = sessionStorage.getItem('secondpaytech_tab_token');
+      if (tabToken) {
+        return tabToken;
+      }
+    }
+
+    if (typeof localStorage === 'undefined') return null;
+
+    // 2. Check if the user is visiting an Admin path or Merchant path
+    const path = typeof window !== 'undefined' ? window.location.pathname.toLowerCase() : '';
+    const isAdminPath = path.startsWith('/admin') || path.startsWith('/login_super_admin');
+
+    if (isAdminPath) {
+      const adminToken = localStorage.getItem('secondpaytech_admin_token');
+      if (adminToken) {
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('secondpaytech_tab_token', adminToken);
+          sessionStorage.setItem('secondpaytech_tab_role', 'SUPER_ADMIN');
+        }
+        return adminToken;
+      }
+    }
+
+    // Check merchant persistent token
+    const merchantToken = localStorage.getItem('secondpaytech_merchant_token');
+    if (merchantToken) {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('secondpaytech_tab_token', merchantToken);
+        sessionStorage.setItem('secondpaytech_tab_role', 'MERCHANT');
+      }
+      return merchantToken;
+    }
+
+    // Check generic token fallback
+    const genericToken = localStorage.getItem('secondpaytech_token');
+    if (genericToken) {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('secondpaytech_tab_token', genericToken);
+      }
+      return genericToken;
+    }
+
+    // Fallback: Admin token if nothing else exists
+    const adminFallback = localStorage.getItem('secondpaytech_admin_token');
+    if (adminFallback) {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('secondpaytech_tab_token', adminFallback);
+        sessionStorage.setItem('secondpaytech_tab_role', 'SUPER_ADMIN');
+      }
+      return adminFallback;
+    }
+
+    return null;
+  }
+
+  public static setToken(token: string, role?: string, email?: string): void {
+    const isSuperAdmin = role === 'SUPER_ADMIN' || (email && email.toLowerCase() === 'admin@secondpaytech.vip');
+
+    // 1. Tab-level isolation: locked to the current tab
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('secondpaytech_tab_token', token);
+      sessionStorage.setItem('secondpaytech_tab_role', isSuperAdmin ? 'SUPER_ADMIN' : 'MERCHANT');
+      if (email) {
+        sessionStorage.setItem('secondpaytech_tab_email', email);
+      }
+    }
+
+    // 2. Partition persistent storage by role so both Super Admin and Merchant coexist without collision!
+    if (typeof localStorage !== 'undefined') {
+      if (isSuperAdmin) {
+        localStorage.setItem('secondpaytech_admin_token', token);
+      } else {
+        localStorage.setItem('secondpaytech_merchant_token', token);
+        localStorage.setItem('secondpaytech_token', token);
+      }
+    }
+  }
+
+  public static clearToken(role?: string): void {
+    const activeRole = role || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('secondpaytech_tab_role') : null);
+
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('secondpaytech_tab_token');
+      sessionStorage.removeItem('secondpaytech_tab_role');
+      sessionStorage.removeItem('secondpaytech_tab_email');
+      sessionStorage.removeItem('secondpaytech_original_admin_token');
+      sessionStorage.removeItem('secondpaytech_impersonated_by');
+    }
+
+    if (typeof localStorage !== 'undefined') {
+      if (activeRole === 'SUPER_ADMIN') {
+        localStorage.removeItem('secondpaytech_admin_token');
+      } else {
+        localStorage.removeItem('secondpaytech_merchant_token');
+        localStorage.removeItem('secondpaytech_token');
+      }
+    }
+  }
+
+  private static getHeaders(isJson = true): HeadersInit {
+    const headers: Record<string, string> = {};
+    if (isJson) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const token = this.getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
+  }
+
+  public static async request<T = any>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<{ status: boolean; data?: T; error?: string; message?: string; rawKey?: string }> {
+    try {
+      const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          ...this.getHeaders(),
+          ...options.headers
+        }
+      });
+
+      const json = await response.json();
+      if (!response.ok && !json.error) {
+        json.error = `HTTP Error ${response.status}: ${response.statusText}`;
+      }
+      return json;
+    } catch (e: any) {
+      return { status: false, error: e.message || 'Network connection failed' };
+    }
+  }
+
+  // Auth
+  public static login(email: string, password: string) {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    });
+  }
+
+  public static register(data: any) {
+    return this.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static getProfile() {
+    return this.request('/auth/me');
+  }
+
+  public static updateProfile(data: any) {
+    return this.request('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static updatePassword(password: string) {
+    return this.request('/auth/update-password', {
+      method: 'POST',
+      body: JSON.stringify({ password })
+    });
+  }
+
+  public static updateEmail(email: string) {
+    return this.request('/auth/update-email', {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+  }
+
+  // Merchants
+  public static getMerchants() {
+    return this.request(`/merchants?_t=${Date.now()}`);
+  }
+
+  public static createMerchant(data: any) {
+    return this.request('/merchants/create', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static updateMerchant(id: string, data: any) {
+    return this.request(`/merchants/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static toggleMerchant(id: string) {
+    return this.request(`/merchants/${id}/toggle`, {
+      method: 'POST'
+    });
+  }
+
+  public static deleteMerchant(id: string) {
+    return this.request(`/merchants/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  public static sendMerchantOtp(id: string, mobile?: string) {
+    return this.request(`/merchants/${id}/otp-send`, {
+      method: 'POST',
+      body: JSON.stringify({ mobile })
+    });
+  }
+
+  public static verifyMerchantOtp(id: string, otp: string, mobile?: string) {
+    return this.request(`/merchants/${id}/otp-verify`, {
+      method: 'POST',
+      body: JSON.stringify({ otp, mobile })
+    });
+  }
+
+  // Devices / SMS Gateway
+  public static getDevices() {
+    return this.request('/devices');
+  }
+
+  public static generatePairing() {
+    return this.request('/devices/generate-pairing', {
+      method: 'POST'
+    });
+  }
+
+  public static toggleDevice(id: string) {
+    return this.request(`/devices/${id}/toggle`, {
+      method: 'POST'
+    });
+  }
+
+  public static deleteDevice(id: string) {
+    return this.request(`/devices/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Orders
+  public static getOrders(params: { status?: string; provider?: string; search?: string; limit?: number; offset?: number } = {}) {
+    const query = new URLSearchParams();
+    if (params.status) query.set('status', params.status);
+    if (params.provider) query.set('provider', params.provider);
+    if (params.search) query.set('search', params.search);
+    if (params.limit) query.set('limit', params.limit.toString());
+    if (params.offset) query.set('offset', params.offset.toString());
+    return this.request(`/orders?${query.toString()}`);
+  }
+
+  public static createOrderManual(data: any) {
+    return this.request('/orders/create-manual', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static forceVerifyOrder(id: string, utr?: string) {
+    return this.request(`/orders/${id}/force-verify`, {
+      method: 'POST',
+      body: JSON.stringify({ utr })
+    });
+  }
+
+  public static cancelOrder(id: string) {
+    return this.request(`/orders/${id}/cancel`, {
+      method: 'POST'
+    });
+  }
+
+  // API Keys
+  public static getApiKeys() {
+    return this.request('/keys');
+  }
+
+  public static createApiKey(data: any) {
+    return this.request('/keys/create', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static rotateApiKey(id: string) {
+    return this.request(`/keys/${id}/rotate`, {
+      method: 'POST'
+    });
+  }
+
+  public static deleteApiKey(id: string) {
+    return this.request(`/keys/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  // Payment Page & Templates
+  public static getTemplateSettings() {
+    return this.request('/templates/settings');
+  }
+
+  public static updateTemplateSettings(data: any) {
+    return this.request('/templates/settings', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static getTemplatesList() {
+    return this.request('/templates');
+  }
+
+  public static getTemplatePreview(templateId: string) {
+    return this.request(`/templates/preview/${templateId}`);
+  }
+
+  // Plans & Billing
+  public static getPlans() {
+    return this.request('/plans');
+  }
+
+  public static getCurrentSubscription() {
+    return this.request('/plans/current');
+  }
+
+  public static upgradePlan(planId: string) {
+    return this.request('/plans/upgrade', {
+      method: 'POST',
+      body: JSON.stringify({ planId })
+    });
+  }
+
+  public static initiatePlanPurchase(planId: string) {
+    return this.request('/plans/purchase', {
+      method: 'POST',
+      body: JSON.stringify({ planId })
+    });
+  }
+
+  public static checkPlanPurchaseStatus(orderId: string, token?: string) {
+    const params = new URLSearchParams({ orderId });
+    if (token) params.set('token', token);
+    return this.request(`/plans/purchase-status?${params.toString()}`);
+  }
+
+  // Hosted Checkout
+  public static getCheckoutData(token: string) {
+    return this.request(`/checkout/${token}`);
+  }
+
+  public static submitManualUtr(token: string, utr: string) {
+    return this.request('/public/v1/order/submit-utr', {
+      method: 'POST',
+      body: JSON.stringify({ link_token: token, utr })
+    });
+  }
+
+  // Contact Us Public Inquiries
+  public static submitContactMessage(data: {
+    name: string;
+    email: string;
+    subject?: string;
+    orderId?: string;
+    message: string;
+  }) {
+    return this.request('/contact', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  // Admin
+  public static getAdminStats() {
+    return this.request('/admin/stats');
+  }
+
+  public static getAdminBillingAccount() {
+    return this.request('/admin/billing-account');
+  }
+
+  public static updateAdminBillingAccount(data: any) {
+    return this.request('/admin/billing-account', {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static getAdminUsers() {
+    return this.request('/admin/users');
+  }
+
+  public static getAdminUserDetails(id: string) {
+    return this.request(`/admin/users/${id}/details`);
+  }
+
+  public static updateAdminUser(id: string, data: any) {
+    return this.request(`/admin/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static approveAdminTenantPlan(id: string, planId: string = 'plan_free') {
+    return this.request(`/admin/users/${id}/approve-plan`, {
+      method: 'POST',
+      body: JSON.stringify({ planId })
+    });
+  }
+
+  public static createAdminMerchant(tenantId: string, data: any) {
+    return this.request(`/admin/users/${tenantId}/merchants`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static updateAdminMerchant(merchantId: string, data: any) {
+    return this.request(`/admin/merchants/${merchantId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static deleteAdminMerchant(merchantId: string) {
+    return this.request(`/admin/merchants/${merchantId}`, {
+      method: 'DELETE'
+    });
+  }
+
+  public static impersonateTenant(id: string) {
+    return this.request(`/admin/impersonate/${id}`, {
+      method: 'POST'
+    });
+  }
+
+  public static getAdminPlans() {
+    return this.request('/admin/plans');
+  }
+
+  public static getAdminOrders(params: any = {}) {
+    const query = new URLSearchParams(params);
+    return this.request(`/admin/orders?${query.toString()}`);
+  }
+
+  public static createAdminPlan(data: any) {
+    return this.request('/admin/plans/create', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static updateAdminPlan(id: string, data: any) {
+    return this.request(`/admin/plans/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static toggleAdminPlanStatus(id: string) {
+    return this.request(`/admin/plans/${id}/toggle-status`, {
+      method: 'PATCH'
+    });
+  }
+
+  public static deleteAdminPlan(id: string) {
+    return this.request(`/admin/plans/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
+  public static getAdminContacts() {
+    return this.request('/admin/contacts');
+  }
+
+  public static updateAdminContact(id: string, data: { status?: string; replyNotes?: string }) {
+    return this.request(`/admin/contacts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public static deleteAdminContact(id: string) {
+    return this.request(`/admin/contacts/${id}`, {
+      method: 'DELETE'
+    });
+  }
+}
