@@ -672,7 +672,7 @@ class _PairingScreenState extends State<PairingScreen> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      SizedBox(height: 24 + MediaQuery.of(context).padding.bottom),
                     ],
                   ),
                 ),

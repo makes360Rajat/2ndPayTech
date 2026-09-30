@@ -271,16 +271,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _showDeviceDetailsModal() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: const Color(0xFF0B132B),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      builder: (ctx) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            24,
+            24,
+            24,
+            16 + MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Row(
               children: [
                 Container(
@@ -374,7 +383,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 
   Future<void> _checkPairingStatus() async {
@@ -902,11 +912,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            IconButton(
+          /* IconButton(
               icon: const Icon(Icons.link_off_rounded, color: Colors.redAccent, size: 20),
               tooltip: 'Disconnect Gateway',
-              onPressed: _promptDisconnectDevice,
-            ),
+              on Pressed: _promptDisconnectDevice,
+            ),*/
           ] else ...[
             Padding(
               padding: const EdgeInsets.only(top: 10, bottom: 10, right: 12),
@@ -976,35 +986,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),*/
         ],
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Top Notification Access Permission Alert Banner (if not granted)
-          if (!_isNotifAccessGranted) _buildCompactNotifBanner(),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Top Notification Access Permission Alert Banner (if not granted)
+            if (!_isNotifAccessGranted) _buildCompactNotifBanner(),
 
-          // Top Battery Optimization Warning Banner (if not ignored)
-          if (!_isBatteryOptIgnored) _buildCompactBatteryBanner(),
+            // Top Battery Optimization Warning Banner (if not ignored)
+            if (!_isBatteryOptIgnored) _buildCompactBatteryBanner(),
 
-          // Top Gateway Paused Banner (when paused remotely from Web Dashboard)
-          if (_isPaired && _isDevicePaused) _buildDevicePausedBanner(),
+            // Top Gateway Paused Banner (when paused remotely from Web Dashboard)
+            if (_isPaired && _isDevicePaused) _buildDevicePausedBanner(),
 
-          if (!_isPaired)
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: _buildPairPrompt(),
+            if (!_isPaired)
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: _buildPairPrompt(),
+                ),
+              )
+            else ...[
+              // Fixed / Pinned Tabs Header: Title + Battery/Refresh + Horizontal Tab Chips
+              _buildTabsHeader(),
+
+              // Scrollable Content (Orders or Live Stream) that scrolls smoothly UNDER the pinned tabs!
+              Expanded(
+                child: _buildScrollableContent(),
               ),
-            )
-          else ...[
-            // Fixed / Pinned Tabs Header: Title + Battery/Refresh + Horizontal Tab Chips
-            _buildTabsHeader(),
-
-            // Scrollable Content (Orders or Live Stream) that scrolls smoothly UNDER the pinned tabs!
-            Expanded(
-              child: _buildScrollableContent(),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
