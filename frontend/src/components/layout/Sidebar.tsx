@@ -58,8 +58,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, isOpe
     <div className="w-68 shrink-0 border-r border-white/10 bg-[#0b0b12] backdrop-blur-2xl h-full p-4 flex flex-col justify-between shadow-2xl overflow-y-auto">
       <div className="space-y-6">
 
-        {/* Panel Header with Brand Logo */}
-        <div className="px-2 pb-3 border-b border-white/10 flex items-center justify-between">
+        {/* Mobile Header with Brand Logo (Hidden on desktop to avoid duplicate logo) */}
+        <div className="md:hidden px-2 pb-3 border-b border-white/10 flex items-center justify-between">
           <div 
             onClick={() => handleItemClick('dashboard')} 
             className="cursor-pointer group flex items-center"
