@@ -18,96 +18,359 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // Configuration & Database
 // -------------------------------------------------------------
 define('JWT_SECRET', 'secondpaytech_super_secure_jwt_secret_key_2026');
-define('DB_HOST', '127.0.0.1');
-define('DB_NAME', 'u586615155_secondpaytech_db');
-define('DB_USER', 'u586615155_secondpaytech_user');
-define('DB_PASS', 'K6b?qnk2L/');
 
 function getDb(): PDO {
     static $pdo = null;
-    if ($pdo === null) {
-        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-        $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false
-        ]);
-        $pdo->exec("SET NAMES utf8mb4");
-        
-        // Ensure template settings table exists
-        $pdo->exec("CREATE TABLE IF NOT EXISTS tenant_template_settings (
-            tenant_id VARCHAR(64) PRIMARY KEY,
-            template_mode VARCHAR(32) DEFAULT 'fixed',
-            default_template VARCHAR(32) DEFAULT 'template_1',
-            enabled_templates TEXT DEFAULT NULL,
-            brand_name VARCHAR(128) DEFAULT NULL,
-            brand_color VARCHAR(32) DEFAULT '#8b5cf6',
-            logo_url VARCHAR(255) DEFAULT NULL,
-            support_note VARCHAR(255) DEFAULT NULL,
-            updated_at VARCHAR(64)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-        // Ensure contact messages & inquiry history table exists
-        $pdo->exec("CREATE TABLE IF NOT EXISTS contact_messages (
-            id VARCHAR(64) PRIMARY KEY,
-            name VARCHAR(128) NOT NULL,
-            email VARCHAR(128) NOT NULL,
-            subject VARCHAR(64) DEFAULT 'general',
-            order_id VARCHAR(64) DEFAULT NULL,
-            message TEXT NOT NULL,
-            ip_address VARCHAR(64) DEFAULT NULL,
-            user_agent VARCHAR(255) DEFAULT NULL,
-            status VARCHAR(32) DEFAULT 'PENDING',
-            reply_notes TEXT DEFAULT NULL,
-            created_at VARCHAR(64),
-            updated_at VARCHAR(64)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-        // Ensure plan_usage table exists for atomic test quota tracking
-        $pdo->exec("CREATE TABLE IF NOT EXISTS plan_usage (
-            id VARCHAR(64) PRIMARY KEY,
-            tenant_id VARCHAR(64) NOT NULL UNIQUE,
-            test_orders_used INT NOT NULL DEFAULT 0,
-            test_orders_limit INT NOT NULL DEFAULT 5,
-            created_at VARCHAR(64) NOT NULL,
-            updated_at VARCHAR(64) NOT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-        // Ensure plan_access_logs exists for audit trail
-        $pdo->exec("CREATE TABLE IF NOT EXISTS plan_access_logs (
-            id VARCHAR(64) PRIMARY KEY,
-            tenant_id VARCHAR(64) NOT NULL,
-            action VARCHAR(64) NOT NULL,
-            endpoint VARCHAR(128) NOT NULL,
-            result VARCHAR(32) NOT NULL,
-            reason VARCHAR(255) NULL,
-            ip_address VARCHAR(45) NULL,
-            user_agent VARCHAR(255) NULL,
-            created_at VARCHAR(64) NOT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-        // Run safe alters in case tables already existed
-        try { $pdo->exec("ALTER TABLE tenant_template_settings ADD COLUMN enabled_templates TEXT DEFAULT NULL"); } catch (Exception $e) {}
-        try { $pdo->exec("ALTER TABLE tenant_template_settings ADD COLUMN logo_url VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
-        try { $pdo->exec("ALTER TABLE tenant_template_settings ADD COLUMN support_note VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
-        try { $pdo->exec("ALTER TABLE contact_messages ADD COLUMN reply_notes TEXT DEFAULT NULL"); } catch (Exception $e) {}
-        try { $pdo->exec("ALTER TABLE devices ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE'"); } catch (Exception $e) {}
-        try { $pdo->exec("ALTER TABLE orders ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'LIVE'"); } catch (Exception $e) {}
-
-        // Enforce proper system roles: pankajpanks007@gmail.com is strictly MERCHANT, admin@secondpaytech.vip is SUPER_ADMIN
-        try {
-            $pdo->exec("UPDATE tenants SET role = 'MERCHANT' WHERE email = 'pankajpanks007@gmail.com' AND role = 'SUPER_ADMIN'");
-            $pdo->exec("UPDATE tenants SET role = 'SUPER_ADMIN' WHERE email = 'admin@secondpaytech.vip'");
-        } catch (Exception $e) {}
-
-        // Ensure default Free Plan exists for Super Admin manual approvals
-        try {
-            $pdo->exec("INSERT INTO plans (id, name, price, max_merchant_accounts, max_orders_per_day, max_api_keys, validity_days, features_json, is_active)
-                VALUES ('plan_free', 'Free Plan', 0.00, 2, 500, 2, 365, '[\"Free Merchant Accounts\",\"500 Orders / Day\",\"Webhooks & Instant Verification\",\"No Monthly Fees\"]', 1)
-                ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price), is_active = 1");
-        } catch (Exception $e) {}
+    if ($pdo !== null) {
+        return $pdo;
     }
+
+    $mysqlConfigs = [];
+
+    // Check environment variables first
+    if (getenv('DB_NAME') && getenv('DB_USER')) {
+        $mysqlConfigs[] = [
+            'host' => getenv('DB_HOST') ?: '127.0.0.1',
+            'dbname' => getenv('DB_NAME'),
+            'user' => getenv('DB_USER'),
+            'pass' => getenv('DB_PASSWORD') ?: getenv('DB_PASS') ?: ''
+        ];
+    }
+
+    // Hostinger u384964548 credentials (active server account)
+    $mysqlConfigs[] = [
+        'host' => '127.0.0.1',
+        'dbname' => 'u384964548_secondpaytech_db',
+        'user' => 'u384964548_secondpaytech_user',
+        'pass' => 'K6b?qnk2L/'
+    ];
+
+    // Hostinger u586615155 credentials (legacy/fallback)
+    $mysqlConfigs[] = [
+        'host' => '127.0.0.1',
+        'dbname' => 'u586615155_secondpaytech_db',
+        'user' => 'u586615155_secondpaytech_user',
+        'pass' => 'K6b?qnk2L/'
+    ];
+
+    $dbDriver = 'sqlite';
+    foreach ($mysqlConfigs as $cfg) {
+        try {
+            $dsn = "mysql:host={$cfg['host']};dbname={$cfg['dbname']};charset=utf8mb4";
+            $conn = new PDO($dsn, $cfg['user'], $cfg['pass'], [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+                PDO::ATTR_TIMEOUT => 2
+            ]);
+            $conn->exec("SET NAMES utf8mb4");
+            $pdo = $conn;
+            $dbDriver = 'mysql';
+            break;
+        } catch (Throwable $e) {
+            // Try next config
+        }
+    }
+
+    if ($pdo === null) {
+        // Fallback to local SQLite file
+        $dataDir = __DIR__ . '/data';
+        if (!is_dir($dataDir)) {
+            @mkdir($dataDir, 0777, true);
+        }
+        $sqliteFile = $dataDir . '/gateway.sqlite';
+        $pdo = new PDO("sqlite:" . $sqliteFile, null, null, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+        ]);
+        $dbDriver = 'sqlite';
+    }
+
+    initAllDatabaseTables($pdo, $dbDriver);
     return $pdo;
+}
+
+function initAllDatabaseTables(PDO $pdo, string $driver): void {
+    static $initialized = false;
+    if ($initialized) return;
+    $initialized = true;
+
+    $tableSuffix = ($driver === 'mysql') ? " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4" : "";
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS tenants (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        role VARCHAR(32) NOT NULL DEFAULT 'MERCHANT',
+        business_name VARCHAR(255) NULL,
+        phone VARCHAR(64) NULL,
+        plan_id VARCHAR(64) NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at VARCHAR(64) NOT NULL,
+        updated_at VARCHAR(64) NOT NULL
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS plans (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        price DECIMAL(10,2) NOT NULL,
+        validity_days INTEGER NOT NULL,
+        max_merchant_accounts INTEGER NOT NULL,
+        max_orders_per_day INTEGER NOT NULL,
+        max_api_keys INTEGER NOT NULL,
+        features_json TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS subscriptions (
+        id VARCHAR(64) PRIMARY KEY,
+        tenant_id VARCHAR(64) NOT NULL,
+        plan_id VARCHAR(64) NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+        starts_at VARCHAR(64) NOT NULL,
+        expires_at VARCHAR(64) NOT NULL,
+        orders_today INTEGER NOT NULL DEFAULT 0,
+        last_reset_date VARCHAR(32) NOT NULL
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS merchants (
+        id VARCHAR(64) PRIMARY KEY,
+        tenant_id VARCHAR(64) NOT NULL,
+        provider VARCHAR(64) NOT NULL,
+        label VARCHAR(255) NOT NULL,
+        upi_id VARCHAR(255) NOT NULL,
+        display_name VARCHAR(255) NOT NULL,
+        weight INTEGER NOT NULL DEFAULT 1,
+        status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+        intent_enabled INTEGER NOT NULL DEFAULT 1,
+        gmail_connected INTEGER NOT NULL DEFAULT 0,
+        gmail_email VARCHAR(255) NULL,
+        credentials_json TEXT NULL,
+        sms_count INTEGER NOT NULL DEFAULT 0,
+        last_used_at VARCHAR(64) NULL,
+        created_at VARCHAR(64) NOT NULL,
+        updated_at VARCHAR(64) NOT NULL
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS devices (
+        id VARCHAR(64) PRIMARY KEY,
+        tenant_id VARCHAR(64) NOT NULL,
+        device_name VARCHAR(255) NOT NULL,
+        device_token VARCHAR(255) NOT NULL UNIQUE,
+        pairing_code VARCHAR(64) NULL,
+        sim_slots_json TEXT NULL,
+        battery_level INTEGER NOT NULL DEFAULT 100,
+        is_online INTEGER NOT NULL DEFAULT 1,
+        status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+        last_heartbeat_at VARCHAR(64) NOT NULL,
+        sms_captured_count INTEGER NOT NULL DEFAULT 0,
+        created_at VARCHAR(64) NOT NULL
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS api_keys (
+        id VARCHAR(64) PRIMARY KEY,
+        tenant_id VARCHAR(64) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        key_prefix VARCHAR(32) NOT NULL,
+        raw_key VARCHAR(255) NOT NULL UNIQUE,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at VARCHAR(64) NOT NULL,
+        last_used_at VARCHAR(64) NULL
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS orders (
+        id VARCHAR(64) PRIMARY KEY,
+        order_id VARCHAR(128) NOT NULL UNIQUE,
+        tenant_id VARCHAR(64) NOT NULL,
+        api_key_id VARCHAR(64) NULL,
+        merchant_account_id VARCHAR(64) NOT NULL,
+        merchant_account_label VARCHAR(255) NOT NULL,
+        provider VARCHAR(64) NOT NULL,
+        amount DECIMAL(12,2) NOT NULL,
+        currency VARCHAR(16) NOT NULL DEFAULT 'INR',
+        status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+        mode VARCHAR(16) NOT NULL DEFAULT 'LIVE',
+        utr VARCHAR(64) NULL,
+        gateway_txn_id VARCHAR(128) NULL,
+        customer_mobile VARCHAR(64) NULL,
+        customer_name VARCHAR(255) NULL,
+        customer_email VARCHAR(255) NULL,
+        remark1 VARCHAR(255) NULL,
+        remark2 VARCHAR(255) NULL,
+        return_url TEXT NULL,
+        callback_url TEXT NULL,
+        template VARCHAR(64) NOT NULL DEFAULT 'MODERN_DARK',
+        link_token VARCHAR(64) NOT NULL UNIQUE,
+        payment_url TEXT NOT NULL,
+        paid_at VARCHAR(64) NULL,
+        expires_at VARCHAR(64) NOT NULL,
+        raw_verification_data_json TEXT NULL,
+        created_at VARCHAR(64) NOT NULL,
+        updated_at VARCHAR(64) NOT NULL
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS webhook_logs (
+        id VARCHAR(64) PRIMARY KEY,
+        order_id VARCHAR(128) NOT NULL,
+        tenant_id VARCHAR(64) NOT NULL,
+        url TEXT NOT NULL,
+        event VARCHAR(64) NOT NULL,
+        payload_json TEXT NOT NULL,
+        response_status INTEGER NULL,
+        response_body TEXT NULL,
+        success INTEGER NOT NULL DEFAULT 0,
+        attempt_count INTEGER NOT NULL DEFAULT 1,
+        created_at VARCHAR(64) NOT NULL
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS sms_logs (
+        id VARCHAR(64) PRIMARY KEY,
+        device_id VARCHAR(64) NOT NULL,
+        tenant_id VARCHAR(64) NOT NULL,
+        sender VARCHAR(128) NOT NULL,
+        message TEXT NOT NULL,
+        parsed_amount DECIMAL(12,2) NULL,
+        parsed_utr VARCHAR(64) NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'UNMATCHED',
+        matched_order_id VARCHAR(128) NULL,
+        received_at VARCHAR(64) NOT NULL
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS tenant_template_settings (
+        tenant_id VARCHAR(64) PRIMARY KEY,
+        template_mode VARCHAR(32) DEFAULT 'fixed',
+        default_template VARCHAR(32) DEFAULT 'template_1',
+        enabled_templates TEXT DEFAULT NULL,
+        brand_name VARCHAR(128) DEFAULT NULL,
+        brand_color VARCHAR(32) DEFAULT '#8b5cf6',
+        logo_url VARCHAR(255) DEFAULT NULL,
+        support_note VARCHAR(255) DEFAULT NULL,
+        updated_at VARCHAR(64)
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS contact_messages (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(128) NOT NULL,
+        email VARCHAR(128) NOT NULL,
+        subject VARCHAR(64) DEFAULT 'general',
+        order_id VARCHAR(64) DEFAULT NULL,
+        message TEXT NOT NULL,
+        ip_address VARCHAR(64) DEFAULT NULL,
+        user_agent VARCHAR(255) DEFAULT NULL,
+        status VARCHAR(32) DEFAULT 'PENDING',
+        reply_notes TEXT DEFAULT NULL,
+        created_at VARCHAR(64),
+        updated_at VARCHAR(64)
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS plan_usage (
+        id VARCHAR(64) PRIMARY KEY,
+        tenant_id VARCHAR(64) NOT NULL UNIQUE,
+        test_orders_used INTEGER NOT NULL DEFAULT 0,
+        test_orders_limit INTEGER NOT NULL DEFAULT 5,
+        created_at VARCHAR(64) NOT NULL,
+        updated_at VARCHAR(64) NOT NULL
+    )$tableSuffix");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS plan_access_logs (
+        id VARCHAR(64) PRIMARY KEY,
+        tenant_id VARCHAR(64) NOT NULL,
+        action VARCHAR(64) NOT NULL,
+        endpoint VARCHAR(128) NOT NULL,
+        result VARCHAR(32) NOT NULL,
+        reason VARCHAR(255) NULL,
+        ip_address VARCHAR(45) NULL,
+        user_agent VARCHAR(255) NULL,
+        created_at VARCHAR(64) NOT NULL
+    )$tableSuffix");
+
+    // Safe column migrations
+    try { $pdo->exec("ALTER TABLE tenant_template_settings ADD COLUMN enabled_templates TEXT DEFAULT NULL"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE tenant_template_settings ADD COLUMN logo_url VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE tenant_template_settings ADD COLUMN support_note VARCHAR(255) DEFAULT NULL"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE contact_messages ADD COLUMN reply_notes TEXT DEFAULT NULL"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE devices ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE'"); } catch (Exception $e) {}
+    try { $pdo->exec("ALTER TABLE orders ADD COLUMN mode VARCHAR(16) NOT NULL DEFAULT 'LIVE'"); } catch (Exception $e) {}
+
+    // Seed default plans
+    $defaultPlans = [
+        ['plan_free', 'Free Plan', 0.00, 365, 2, 500, 2, '["Free Merchant Accounts","500 Orders / Day","Webhooks & Instant Verification","No Monthly Fees"]', 1],
+        ['plan_starter', 'Starter', 999.00, 30, 2, 100, 2, '{"webhooks":true,"smsGateway":true,"crypto":false,"prioritySupport":false,"customBranding":false}', 1],
+        ['plan_pro', 'Pro', 2499.00, 30, 10, 2000, 10, '{"webhooks":true,"smsGateway":true,"crypto":true,"prioritySupport":true,"customBranding":true}', 1],
+        ['plan_unlimited', 'Unlimited VIP', 9999.00, 365, 50, 100000, 50, '{"webhooks":true,"smsGateway":true,"crypto":true,"prioritySupport":true,"customBranding":true,"zeroCommission":true}', 1]
+    ];
+    foreach ($defaultPlans as $p) {
+        $chk = $pdo->prepare("SELECT id FROM plans WHERE id = ?");
+        $chk->execute([$p[0]]);
+        if (!$chk->fetch()) {
+            $ins = $pdo->prepare("INSERT INTO plans (id, name, price, validity_days, max_merchant_accounts, max_orders_per_day, max_api_keys, features_json, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $ins->execute($p);
+        }
+    }
+
+    $now = gmdate('Y-m-d\TH:i:s\Z');
+    $expireOneYear = gmdate('Y-m-d\TH:i:s\Z', strtotime('+365 days'));
+
+    // Seed Super Admin
+    $chkAdmin = $pdo->prepare("SELECT id FROM tenants WHERE email = ?");
+    $chkAdmin->execute(['admin@secondpaytech.vip']);
+    if (!$chkAdmin->fetch()) {
+        $ins = $pdo->prepare("INSERT INTO tenants (id, name, email, password_hash, role, business_name, phone, plan_id, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $ins->execute([
+            'tenant_admin_001',
+            'Super Administrator',
+            'admin@secondpaytech.vip',
+            '$2a$10$feR16cL3D.mgDlwUpG8VbuarVK.75j6fewQKeaoyCHGjGhL5y296S',
+            'SUPER_ADMIN',
+            '2ndPayTech Official Platform',
+            '+919999999999',
+            'plan_unlimited',
+            1,
+            $now,
+            $now
+        ]);
+    } else {
+        $pdo->exec("UPDATE tenants SET role = 'SUPER_ADMIN' WHERE email = 'admin@secondpaytech.vip'");
+    }
+
+    // Seed Pankaj Merchant Account (Password: Db@0125)
+    $chkPankaj = $pdo->prepare("SELECT id FROM tenants WHERE email = ?");
+    $chkPankaj->execute(['pankajpanks007@gmail.com']);
+    if (!$chkPankaj->fetch()) {
+        $ins = $pdo->prepare("INSERT INTO tenants (id, name, email, password_hash, role, business_name, phone, plan_id, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $ins->execute([
+            'tenant_pankaj_007',
+            'Pankaj Sharma',
+            'pankajpanks007@gmail.com',
+            '$2a$10$feR16cL3D.mgDlwUpG8VbuNSqjYA3wQQm2zmUCAx.gNYLryTjrzqq',
+            'MERCHANT',
+            'Pankaj Enterprises & Tech',
+            '+919876543210',
+            'plan_pro',
+            1,
+            $now,
+            $now
+        ]);
+    } else {
+        // Ensure active and correct password
+        $updP = $pdo->prepare("UPDATE tenants SET password_hash = ?, is_active = 1, role = 'MERCHANT' WHERE email = 'pankajpanks007@gmail.com'");
+        $updP->execute(['$2a$10$feR16cL3D.mgDlwUpG8VbuNSqjYA3wQQm2zmUCAx.gNYLryTjrzqq']);
+    }
+
+    // Ensure active subscriptions
+    $subList = [
+        ['sub_admin_001', 'tenant_admin_001', 'plan_unlimited'],
+        ['sub_pankaj_001', 'tenant_pankaj_007', 'plan_pro']
+    ];
+    foreach ($subList as $s) {
+        $chkSub = $pdo->prepare("SELECT id FROM subscriptions WHERE tenant_id = ?");
+        $chkSub->execute([$s[1]]);
+        if (!$chkSub->fetch()) {
+            $insSub = $pdo->prepare("INSERT INTO subscriptions (id, tenant_id, plan_id, status, starts_at, expires_at, orders_today, last_reset_date) VALUES (?, ?, ?, 'ACTIVE', ?, ?, 0, ?)");
+            $insSub->execute([$s[0], $s[1], $s[2], $now, $expireOneYear, gmdate('Y-m-d')]);
+        }
+    }
 }
 
 // -------------------------------------------------------------
@@ -1577,8 +1840,15 @@ try {
                 $supportNote = $input['supportNote'] ?? $input['support_note'] ?? '';
                 $now = gmdate('Y-m-d\TH:i:s\Z');
 
-                $stmt = $db->prepare("INSERT INTO tenant_template_settings (tenant_id, template_mode, default_template, enabled_templates, brand_name, brand_color, logo_url, support_note, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE template_mode = VALUES(template_mode), default_template = VALUES(default_template), enabled_templates = VALUES(enabled_templates), brand_name = VALUES(brand_name), brand_color = VALUES(brand_color), logo_url = VALUES(logo_url), support_note = VALUES(support_note), updated_at = VALUES(updated_at)");
-                $stmt->execute([$tenantId, $templateMode, $defaultTemplate, $enabledTemplates, $brandName, $brandColor, $logoUrl, $supportNote, $now]);
+                $chk = $db->prepare("SELECT tenant_id FROM tenant_template_settings WHERE tenant_id = ?");
+                $chk->execute([$tenantId]);
+                if ($chk->fetch()) {
+                    $stmt = $db->prepare("UPDATE tenant_template_settings SET template_mode = ?, default_template = ?, enabled_templates = ?, brand_name = ?, brand_color = ?, logo_url = ?, support_note = ?, updated_at = ? WHERE tenant_id = ?");
+                    $stmt->execute([$templateMode, $defaultTemplate, $enabledTemplates, $brandName, $brandColor, $logoUrl, $supportNote, $now, $tenantId]);
+                } else {
+                    $stmt = $db->prepare("INSERT INTO tenant_template_settings (tenant_id, template_mode, default_template, enabled_templates, brand_name, brand_color, logo_url, support_note, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$tenantId, $templateMode, $defaultTemplate, $enabledTemplates, $brandName, $brandColor, $logoUrl, $supportNote, $now]);
+                }
 
                 echo json_encode([
                     'status' => true,
@@ -3011,9 +3281,12 @@ try {
             $plan = $stmt->fetch();
 
             if (!$plan && $planId === 'plan_free') {
-                $db->exec("INSERT INTO plans (id, name, price, max_merchant_accounts, max_orders_per_day, max_api_keys, validity_days, features_json, is_active)
-                    VALUES ('plan_free', 'Free Plan', 0.00, 2, 500, 2, 365, '[\"Free Merchant Accounts\",\"500 Orders / Day\",\"Webhooks & Instant Verification\",\"No Monthly Fees\"]', 1)
-                    ON DUPLICATE KEY UPDATE name = VALUES(name), price = VALUES(price), is_active = 1");
+                $chkPlan = $db->prepare("SELECT id FROM plans WHERE id = 'plan_free'");
+                $chkPlan->execute();
+                if (!$chkPlan->fetch()) {
+                    $db->exec("INSERT INTO plans (id, name, price, max_merchant_accounts, max_orders_per_day, max_api_keys, validity_days, features_json, is_active)
+                        VALUES ('plan_free', 'Free Plan', 0.00, 2, 500, 2, 365, '[\"Free Merchant Accounts\",\"500 Orders / Day\",\"Webhooks & Instant Verification\",\"No Monthly Fees\"]', 1)");
+                }
                 $stmt = $db->prepare("SELECT * FROM plans WHERE id = ?");
                 $stmt->execute([$planId]);
                 $plan = $stmt->fetch();
