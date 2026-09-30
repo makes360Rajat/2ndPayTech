@@ -521,8 +521,12 @@ class PlanService {
             $now = gmdate('Y-m-d\TH:i:s\Z');
             $id = 'pusg_' . substr(bin2hex(random_bytes(6)), 0, 8);
             try {
-                $ins = $db->prepare("INSERT IGNORE INTO plan_usage (id, tenant_id, test_orders_used, test_orders_limit, created_at, updated_at) VALUES (?, ?, 0, 5, ?, ?)");
-                $ins->execute([$id, $tenantId, $now, $now]);
+                $chk = $db->prepare("SELECT id FROM plan_usage WHERE tenant_id = ?");
+                $chk->execute([$tenantId]);
+                if (!$chk->fetch()) {
+                    $ins = $db->prepare("INSERT INTO plan_usage (id, tenant_id, test_orders_used, test_orders_limit, created_at, updated_at) VALUES (?, ?, 0, 5, ?, ?)");
+                    $ins->execute([$id, $tenantId, $now, $now]);
+                }
             } catch (Exception $e) {}
             return [
                 'used' => 0,
@@ -584,11 +588,13 @@ class PlanService {
         if (!$check->fetch()) {
             $now = gmdate('Y-m-d\TH:i:s\Z');
             $id = 'pusg_' . substr(bin2hex(random_bytes(6)), 0, 8);
-            $ins = $db->prepare("INSERT IGNORE INTO plan_usage (id, tenant_id, test_orders_used, test_orders_limit, created_at, updated_at) VALUES (?, ?, 0, 5, ?, ?)");
-            $ins->execute([$id, $tenantId, $now, $now]);
+            try {
+                $ins = $db->prepare("INSERT INTO plan_usage (id, tenant_id, test_orders_used, test_orders_limit, created_at, updated_at) VALUES (?, ?, 0, 5, ?, ?)");
+                $ins->execute([$id, $tenantId, $now, $now]);
+            } catch (Exception $e) {}
         }
 
-        $stmt = $db->prepare("SELECT test_orders_used, test_orders_limit FROM plan_usage WHERE tenant_id = ? FOR UPDATE");
+        $stmt = $db->prepare("SELECT test_orders_used, test_orders_limit FROM plan_usage WHERE tenant_id = ?");
         $stmt->execute([$tenantId]);
         $row = $stmt->fetch();
         if (!$row) return false;
@@ -952,8 +958,12 @@ try {
 
         // Initialize Free Test Quota (5 test orders limit)
         $pusgId = 'pusg_' . substr(bin2hex(random_bytes(6)), 0, 8);
-        $stmt = $db->prepare("INSERT IGNORE INTO plan_usage (id, tenant_id, test_orders_used, test_orders_limit, created_at, updated_at) VALUES (?, ?, 0, 5, ?, ?)");
-        $stmt->execute([$pusgId, $tenantId, $now, $now]);
+        $chkUsage = $db->prepare("SELECT id FROM plan_usage WHERE tenant_id = ?");
+        $chkUsage->execute([$tenantId]);
+        if (!$chkUsage->fetch()) {
+            $stmt = $db->prepare("INSERT INTO plan_usage (id, tenant_id, test_orders_used, test_orders_limit, created_at, updated_at) VALUES (?, ?, 0, 5, ?, ?)");
+            $stmt->execute([$pusgId, $tenantId, $now, $now]);
+        }
 
         // Auto-generate primary API key
         $keyId = 'key_' . substr(bin2hex(random_bytes(6)), 0, 8);
