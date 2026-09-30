@@ -26,7 +26,7 @@ class _PairingScreenState extends State<PairingScreen> {
     ApiClient.getPairingCode().then((code) {
       if (mounted && code != null && code.isNotEmpty && code != 'PAIR-8892' && code != 'PAIR-8173') {
         setState(() {
-          _tokenController.text = code;
+          _tokenController.text = code.replaceAll(RegExp(r'^PAIR[-\s]*', caseSensitive: false), '').trim();
         });
       }
     });
@@ -48,24 +48,27 @@ class _PairingScreenState extends State<PairingScreen> {
   }
 
   Future<void> _handlePair() async {
-    final inputCode = _tokenController.text.trim();
+    final rawInput = _tokenController.text.trim();
     final url = _productionDomain;
     final name = _deviceNameController.text.trim();
 
-    if (inputCode.isEmpty) {
+    if (rawInput.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please enter Pairing ID / Code'),
+          content: Text('Please enter the 4-digit Pairing Code (e.g. 3015)'),
           backgroundColor: Colors.redAccent,
         ),
       );
       return;
     }
 
+    final cleanInput = rawInput.replaceAll(RegExp(r'^PAIR[-\s]*', caseSensitive: false), '').trim();
+    final codeToSend = rawInput.startsWith('pv_') ? rawInput : 'PAIR-$cleanInput';
+
     setState(() => _isLoading = true);
     await ApiClient.setServerUrl(url);
     final success = await ApiClient.pairDevice(
-      pairingCodeOrToken: inputCode,
+      pairingCodeOrToken: codeToSend,
       deviceName: name.isEmpty ? 'Android SMS Gateway Phone' : name,
       serverUrl: url,
     );
@@ -95,7 +98,7 @@ class _PairingScreenState extends State<PairingScreen> {
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Pairing failed for "$inputCode". Verify code on web dashboard.'),
+          content: Text('Pairing failed for "$codeToSend". Verify code on web dashboard.'),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -399,18 +402,18 @@ class _PairingScreenState extends State<PairingScreen> {
                       ),
                       const SizedBox(height: 22),
 
-                      // SECTION 2: Pairing ID / Code or Device Token
+                      // SECTION 2: Pairing ID / Code
                       _buildSectionHeader(
-                        icon: Icons.search_rounded,
-                        title: 'Pairing ID / Code or Device Token',
+                        icon: Icons.qr_code_scanner_rounded,
+                        title: 'Pairing Code',
                         iconColor: const Color(0xFF00E5FF),
                       ),
                       const SizedBox(height: 10),
 
-                      // Code Input Field
+                      // Code Input Field with prefilled "PAIR-" badge
                       Container(
                         height: 56,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
                         decoration: BoxDecoration(
                           color: const Color(0xFF09142A),
                           borderRadius: BorderRadius.circular(16),
@@ -427,30 +430,58 @@ class _PairingScreenState extends State<PairingScreen> {
                         ),
                         child: Row(
                           children: [
-                            const Icon(
-                              Icons.qr_code_scanner_rounded,
-                              color: Color(0xFFFFB800),
-                              size: 22,
+                            // Prefilled PAIR- prefix badge
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0088FF).withValues(alpha: 0.22),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: const Color(0xFF0088FF).withValues(alpha: 0.55),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Text(
+                                'PAIR-',
+                                style: GoogleFonts.jetBrainsMono(
+                                  color: const Color(0xFF00E5FF),
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: TextField(
                                 controller: _tokenController,
+                                keyboardType: TextInputType.text,
                                 textCapitalization: TextCapitalization.characters,
                                 cursorColor: const Color(0xFF00E5FF),
                                 style: GoogleFonts.jetBrainsMono(
                                   color: Colors.white,
-                                  fontSize: 15,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.2,
+                                  letterSpacing: 1.5,
                                 ),
+                                onChanged: (val) {
+                                  // If the user pastes full "PAIR-3015" or "pair-3015", automatically strip the prefix
+                                  if (val.toUpperCase().contains('PAIR-') || val.toUpperCase().contains('PAIR')) {
+                                    final cleaned = val.replaceAll(RegExp(r'PAIR[-\s]*', caseSensitive: false), '').trim();
+                                    _tokenController.value = TextEditingValue(
+                                      text: cleaned,
+                                      selection: TextSelection.collapsed(offset: cleaned.length),
+                                    );
+                                  }
+                                },
                                 decoration: InputDecoration(
                                   border: InputBorder.none,
                                   isDense: true,
-                                  hintText: 'e.g. PAIR-8173',
+                                  hintText: '3015',
                                   hintStyle: TextStyle(
                                     color: Colors.white.withValues(alpha: 0.3),
-                                    letterSpacing: 1.0,
+                                    letterSpacing: 1.5,
+                                    fontWeight: FontWeight.normal,
                                   ),
                                   contentPadding: EdgeInsets.zero,
                                 ),
@@ -465,7 +496,18 @@ class _PairingScreenState extends State<PairingScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 6),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Text(
+                          'Only enter or paste the 4-digit code (e.g. 3015)',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.45),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
 
                       // SECTION 3: Device Nickname
                       _buildSectionHeader(
