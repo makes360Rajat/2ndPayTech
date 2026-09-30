@@ -58,13 +58,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentPage, onNavigate, isOpe
     <div className="w-68 shrink-0 border-r border-white/10 bg-[#0b0b12] backdrop-blur-2xl h-full p-4 flex flex-col justify-between shadow-2xl overflow-y-auto">
       <div className="space-y-6">
 
-        {/* Mobile Header with Logo */}
-        <div className="md:hidden px-2 pb-3 border-b border-white/10 flex items-center justify-between">
-          <img src={logo} alt="2ndPayTech" className="h-9 w-auto object-contain drop-shadow-[0_0_15px_rgba(16,185,129,0.25)]" />
+        {/* Panel Header with Brand Logo */}
+        <div className="px-2 pb-3 border-b border-white/10 flex items-center justify-between">
+          <div 
+            onClick={() => handleItemClick('dashboard')} 
+            className="cursor-pointer group flex items-center"
+            title="2ndPayTech Dashboard"
+          >
+            <img src={logo} alt="2ndPayTech" className="h-9 sm:h-10 w-auto object-contain group-hover:scale-105 transition duration-300 drop-shadow-[0_0_15px_rgba(16,185,129,0.25)]" />
+          </div>
           {onClose && (
             <button
               onClick={onClose}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition"
+              className="md:hidden rounded-lg p-1.5 text-slate-400 hover:bg-white/10 hover:text-white transition"
               aria-label="Close menu"
             >
               <X className="h-5 w-5" />
